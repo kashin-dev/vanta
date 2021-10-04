@@ -10,8 +10,8 @@ class Effect extends P5Base {
   static initClass() {
     this.prototype.p5 = true
     this.prototype.defaultOptions = {
-      color: 0x89964e,
-      backgroundColor: 0x002222,
+      color: 0x4b7bec,
+      backgroundColor: 0x000000,
     }
   }
   constructor(userOptions) {
@@ -21,12 +21,12 @@ class Effect extends P5Base {
   onInit() {
     const t = this
 
-    let sketch = function(p) {
+    let sketch = function (p) {
       let width = t.width
       let height = t.height
       let offset = 100
 
-      let flow_cell_size = 10
+      let flow_cell_size = 15
 
       let noise_size = 0.003
       let noise_radius = 0.1
@@ -37,11 +37,11 @@ class Effect extends P5Base {
       let noise_grid = []
       let flow_grid = []
 
-      let number_of_particles = 4500
+      let number_of_particles = 6500
       let particles = []
 
-      let tick = 0
-      p.setup = function() {
+      let tick = 1
+      p.setup = function () {
         t.initP5(p) // sets bg too
         p.smooth()
         p.noStroke()
@@ -50,12 +50,12 @@ class Effect extends P5Base {
         init_particles()
         init_flow()
       }
-      p.draw = function() {
+      p.draw = function () {
         p.translate(-offset, -offset)
         //display_flow()
         update_particles()
         display_particles()
-        tick += 0.002
+        tick += 0.005
       }
 
       function init_particles() {

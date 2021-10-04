@@ -1,16 +1,17 @@
 import {mobileCheck, q, color2Hex, clearThree} from './helpers.js'
-// const DEBUGMODE = window.location.toString().indexOf('VANTADEBUG') !== -1
+// const DEBUGMODE = window.location.toString().indexOf('KASHINDEBUG') !== -1
+import * as THREE from 'three';
+import {EffectComposer} from 'three/examples/jsm/postprocessing/EffectComposer.js';
 
 const win = typeof window == 'object'
-let THREE = (win && window.THREE) || {}
-if (win && !window.VANTA) window.VANTA = {}
-const VANTA = (win && window.VANTA) || {}
-VANTA.register = (name, Effect) => {
-  return VANTA[name] = (opts) => new Effect(opts)
+//let THREE = (win && window.THREE) || {}
+if (win && !window.KASHIN) window.KASHIN = {}
+const KASHIN = (win && window.KASHIN) || {}
+KASHIN.register = (name, Effect) => {
+  return KASHIN[name] = (opts) => new Effect(opts)
 }
-VANTA.version = '0.5.21'
 
-export {VANTA}
+export {KASHIN}
 
 // const ORBITCONTROLS = {
 //   enableZoom: false,
@@ -33,28 +34,37 @@ export {VANTA}
 // }
 
 // Namespace for errors
-const error = function() {
-  Array.prototype.unshift.call(arguments, '[VANTA]')
+const error = function () {
+  Array.prototype.unshift.call(arguments, '[KASHIN]')
   return console.error.apply(this, arguments)
 }
 
-VANTA.VantaBase = class VantaBase {
+KASHIN.Base = class Base {
   constructor(userOptions = {}) {
     if (!win) return false
-    VANTA.current = this
+    KASHIN.current = this
+    this.clicking = false
     this.windowMouseMoveWrapper = this.windowMouseMoveWrapper.bind(this)
+    this.windowMousePressedWrapper = this.windowMousePressedWrapper.bind(this)
+    this.windowMouseUnpressedWrapper = this.windowMouseUnpressedWrapper.bind(this)
+    this.windowMousePressedMoveWrapper = this.windowMousePressedMoveWrapper.bind(this)
     this.windowTouchWrapper = this.windowTouchWrapper.bind(this)
     this.windowGyroWrapper = this.windowGyroWrapper.bind(this)
     this.resize = this.resize.bind(this)
     this.animationLoop = this.animationLoop.bind(this)
     this.restart = this.restart.bind(this)
+    this.THREE = THREE
+    this.clock = new this.THREE.Clock()
+    this.delta = 0
+    this.interval = 1 / 40
+
 
     const defaultOptions = (typeof this.getDefaultOptions === 'function') ? this.getDefaultOptions() : this.defaultOptions
     this.options = Object.assign({
       mouseControls: true,
       touchControls: true,
       gyroControls: false,
-      minHeight: 200,
+      minHeight: 600,
       minWidth: 200,
       scale: 1,
       scaleMobile: 1,
@@ -64,10 +74,6 @@ VANTA.VantaBase = class VantaBase {
       userOptions = {el: userOptions}
     }
     Object.assign(this.options, userOptions)
-
-    if (this.options.THREE) {
-      THREE = this.options.THREE // Optionally use a custom build of three.js
-    }
 
     // Set element
     this.el = this.options.el
@@ -83,8 +89,8 @@ VANTA.VantaBase = class VantaBase {
     }
 
     this.prepareEl()
-    this.initThree()
     this.setSize() // Init needs size
+    this.initThree()
 
     try {
       this.init()
@@ -95,7 +101,7 @@ VANTA.VantaBase = class VantaBase {
         this.el.removeChild(this.renderer.domElement)
       }
       if (this.options.backgroundColor) {
-        console.log('[VANTA] Falling back to backgroundColor')
+        console.log('[KASHIN] Falling back to backgroundColor')
         this.el.style.background = color2Hex(this.options.backgroundColor)
       }
       return
@@ -114,7 +120,9 @@ VANTA.VantaBase = class VantaBase {
     // Add event listeners on window, because this element may be below other elements, which would block the element's own mousemove event
     if (this.options.mouseControls) {
       ad('scroll', this.windowMouseMoveWrapper)
-      ad('mousemove', this.windowMouseMoveWrapper)
+      ad('mousedown', this.windowMousePressedWrapper)
+      ad('mouseup', this.windowMouseUnpressedWrapper)
+      ad('mousemove', this.windowMousePressedMoveWrapper)
     }
     if (this.options.touchControls) {
       ad('touchstart', this.windowTouchWrapper)
@@ -125,7 +133,7 @@ VANTA.VantaBase = class VantaBase {
     }
   }
 
-  setOptions(userOptions={}){
+  setOptions(userOptions = {}) {
     Object.assign(this.options, userOptions)
     this.triggerMouseMove()
   }
@@ -160,7 +168,7 @@ VANTA.VantaBase = class VantaBase {
     }
   }
 
-  applyCanvasStyles(canvasEl, opts={}){
+  applyCanvasStyles(canvasEl, opts = {}) {
     Object.assign(canvasEl.style, {
       position: 'absolute',
       zIndex: 0,
@@ -173,22 +181,25 @@ VANTA.VantaBase = class VantaBase {
   }
 
   initThree() {
-    if (!THREE.WebGLRenderer) {
-      console.warn("[VANTA] No THREE defined on window")
+    if (!this.THREE.WebGLRenderer) {
+      console.warn("[KASHIN] No THREE defined on window")
       return
     }
     // Set renderer
-    this.renderer = new THREE.WebGLRenderer({
+    this.renderer = new this.THREE.WebGLRenderer({
       alpha: true,
       antialias: true
     })
+
+    this.composer = new EffectComposer(this.renderer)
+    this.composer.setSize(this.width, this.height)
     this.el.appendChild(this.renderer.domElement)
     this.applyCanvasStyles(this.renderer.domElement)
     if (isNaN(this.options.backgroundAlpha)) {
       this.options.backgroundAlpha = 1
     }
 
-    this.scene = new THREE.Scene()
+    this.scene = new this.THREE.Scene()
   }
 
   getCanvasElement() {
@@ -206,36 +217,57 @@ VANTA.VantaBase = class VantaBase {
     return canvas.getBoundingClientRect()
   }
 
-  windowMouseMoveWrapper(e){
+  windowMousePressedWrapper(e) {
+    this.triggerMousePress()
+  }
+
+  windowMouseUnpressedWrapper(e) {
+    this.triggerMouseUnpress()
+  }
+
+  windowMousePressedMoveWrapper(e) {
+    if (!this.clicking) return false
     const rect = this.getCanvasRect()
     if (!rect) return false
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
-    if (x>=0 && y>=0 && x<=rect.width && y<=rect.height) {
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
       this.mouseX = x
       this.mouseY = y
       if (!this.options.mouseEase) this.triggerMouseMove(x, y)
     }
   }
-  windowTouchWrapper(e){
+
+  windowMouseMoveWrapper(e) {
+    const rect = this.getCanvasRect()
+    if (!rect) return false
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
+      this.mouseX = x
+      this.mouseY = y
+      if (!this.options.mouseEase) this.triggerMouseMove(x, y)
+    }
+  }
+  windowTouchWrapper(e) {
     const rect = this.getCanvasRect()
     if (!rect) return false
     if (e.touches.length === 1) {
       const x = e.touches[0].clientX - rect.left
       const y = e.touches[0].clientY - rect.top
-      if (x>=0 && y>=0 && x<=rect.width && y<=rect.height) {
+      if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
         this.mouseX = x
         this.mouseY = y
         if (!this.options.mouseEase) this.triggerMouseMove(x, y)
       }
     }
   }
-  windowGyroWrapper(e){
+  windowGyroWrapper(e) {
     const rect = this.getCanvasRect()
     if (!rect) return false
     const x = Math.round(e.alpha * 2) - rect.left
     const y = Math.round(e.beta * 2) - rect.top
-    if (x>=0 && y>=0 && x<=rect.width && y<=rect.height) {
+    if (x >= 0 && y >= 0 && x <= rect.width && y <= rect.height) {
       this.mouseX = x
       this.mouseY = y
       if (!this.options.mouseEase) this.triggerMouseMove(x, y)
@@ -260,6 +292,13 @@ VANTA.VantaBase = class VantaBase {
     const yNorm = y / this.height // 0 to 1
     typeof this.onMouseMove === "function" ? this.onMouseMove(xNorm, yNorm) : void 0
   }
+  triggerMousePress() {
+    this.clicking = true
+  }
+
+  triggerMouseUnpress() {
+    this.clicking = false
+  }
 
   setSize() {
     this.scale || (this.scale = 1)
@@ -274,9 +313,9 @@ VANTA.VantaBase = class VantaBase {
   initMouse() {
     // Init mouseX and mouseY
     if ((!this.mouseX && !this.mouseY) ||
-      (this.mouseX === this.options.minWidth/2 && this.mouseY === this.options.minHeight/2)) {
-      this.mouseX = this.width/2
-      this.mouseY = this.height/2
+      (this.mouseX === this.options.minWidth / 2 && this.mouseY === this.options.minHeight / 2)) {
+      this.mouseX = this.width / 2
+      this.mouseY = this.height / 2
       this.triggerMouseMove(this.mouseX, this.mouseY)
     }
   }
@@ -322,7 +361,7 @@ VANTA.VantaBase = class VantaBase {
     if (this.options.mouseEase) {
       this.mouseEaseX = this.mouseEaseX || this.mouseX || 0
       this.mouseEaseY = this.mouseEaseY || this.mouseY || 0
-      if (Math.abs(this.mouseEaseX-this.mouseX) + Math.abs(this.mouseEaseY-this.mouseY) > 0.1) {
+      if (Math.abs(this.mouseEaseX - this.mouseX) + Math.abs(this.mouseEaseY - this.mouseY) > 0.1) {
         this.mouseEaseX += (this.mouseX - this.mouseEaseX) * 0.05
         this.mouseEaseY += (this.mouseY - this.mouseEaseY) * 0.05
         this.triggerMouseMove(this.mouseEaseX, this.mouseEaseY)
@@ -335,15 +374,22 @@ VANTA.VantaBase = class VantaBase {
         this.onUpdate()
       }
       if (this.scene && this.camera) {
-        this.renderer.render(this.scene, this.camera)
-        this.renderer.setClearColor(this.options.backgroundColor, this.options.backgroundAlpha)
+
+        this.delta += this.clock.getDelta()
+        if (this.delta > this.interval) {
+          this.renderer.render(this.scene, this.camera)
+          this.renderer.setClearColor(this.options.backgroundColor, this.options.backgroundAlpha)
+          this.composer.render()
+          this.delta = this.delta % this.interval;
+        }
       }
       // if (this.stats) this.stats.update()
       // if (this.renderStats) this.renderStats.update(this.renderer)
       if (this.fps && this.fps.update) this.fps.update()
       if (typeof this.afterRender === "function") this.afterRender()
     }
-    return this.req = window.requestAnimationFrame(this.animationLoop)
+
+    window.requestAnimationFrame(this.animationLoop)
   }
 
   // setupControls() {
@@ -383,6 +429,8 @@ VANTA.VantaBase = class VantaBase {
     rm('touchmove', this.windowTouchWrapper)
     rm('scroll', this.windowMouseMoveWrapper)
     rm('mousemove', this.windowMouseMoveWrapper)
+    rm('mouseup', this.windowMousePressedMoveWrapper)
+    rm('mousedown', this.windowMouseUnpressedWrapper)
     rm('deviceorientation', this.windowGyroWrapper)
     rm('resize', this.resize)
     window.cancelAnimationFrame(this.req)
@@ -396,13 +444,14 @@ VANTA.VantaBase = class VantaBase {
         this.el.removeChild(this.renderer.domElement)
       }
       this.renderer = null
+      this.composer = null
       this.scene = null
     }
 
-    if (VANTA.current === this) {
-      VANTA.current = null
+    if (KASHIN.current === this) {
+      KASHIN.current = null
     }
   }
 }
 
-export default VANTA.VantaBase
+export default KASHIN.Base

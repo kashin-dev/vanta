@@ -20,14 +20,10 @@ for (let i = 0; i < srcFiles.length; i++) {
 }
 
 module.exports = {
-  entry:{
-    'gallery/gallery.min': './src/gallery.js',
-  },
-  // watch: true,
-  mode: "development",
+  entry: entries,
   output: {
     filename: '[name].js',
-    path: path.resolve(__dirname, 'dist'),
+    path: path.resolve(__dirname, 'out'),
     library: '_vantaEffect',
     libraryTarget: 'umd',
     globalObject: 'typeof self !== \'undefined\' ? self : this',
